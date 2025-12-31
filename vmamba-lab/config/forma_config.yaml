@@ -1,0 +1,110 @@
+# ForMa Configuration
+# Image Tampering Localization with Vision Mamba
+
+defaults:
+  - default
+
+# Model Configuration
+model:
+  name: "forma"
+
+  # VSS Encoder settings
+  encoder:
+    type: "vmamba_small"  # vmamba_tiny, vmamba_small, vmamba_base
+    pretrained: true
+    drop_path_rate: 0.3
+    out_indices: [0, 1, 2, 3]  # Multi-scale feature indices
+
+  # Lightweight Decoder settings
+  decoder:
+    channels: [256, 128, 64, 32]
+    use_pixel_shuffle: true
+    upsample_mode: "bilinear"  # bilinear, nearest, pixel_shuffle
+
+  # Noise-assisted module
+  noise_module:
+    enabled: true
+    type: "srm"  # srm (fixed filters) or learnable
+    num_filters: 30
+
+  # Output
+  output:
+    num_classes: 1  # Binary segmentation
+    activation: "sigmoid"
+
+# Training Configuration
+train:
+  batch_size: 16
+  epochs: 100
+
+  # Optimizer
+  optimizer:
+    type: "adamw"
+    lr: 5.0e-5
+    weight_decay: 0.01
+    betas: [0.9, 0.999]
+
+  # Learning rate scheduler
+  scheduler:
+    type: "cosine"
+    warmup_epochs: 10
+    min_lr: 1.0e-7
+
+  # Loss function
+  loss:
+    type: "bce_dice"  # bce, dice, bce_dice, focal_dice
+    bce_weight: 0.5
+    dice_weight: 0.5
+    focal_gamma: 2.0
+
+  # Data augmentation
+  augmentation:
+    horizontal_flip: true
+    vertical_flip: true
+    rotation: 90
+    scale: [0.8, 1.2]
+    color_jitter:
+      brightness: 0.3
+      contrast: 0.3
+      saturation: 0.3
+    jpeg_compression: [50, 100]
+    gaussian_noise: 0.02
+
+# Data Configuration
+data:
+  input_size: 512
+
+  # Training datasets (can combine multiple)
+  train:
+    datasets:
+      - name: "casia"
+        version: "v2"
+        weight: 1.0
+      - name: "coverage"
+        weight: 0.5
+      - name: "columbia"
+        weight: 0.3
+    split: "train"
+
+  # Validation
+  val:
+    datasets:
+      - name: "casia"
+        version: "v2"
+    split: "val"
+
+  # Test datasets
+  test:
+    - name: "casia_v1"
+    - name: "casia_v2"
+    - name: "columbia"
+    - name: "coverage"
+    - name: "nist16"
+    - name: "imd2020"
+
+# Evaluation Configuration
+eval:
+  metrics: ["f1", "iou", "pixel_auc", "pixel_acc"]
+  threshold: 0.5
+  save_masks: true
+  visualize: true

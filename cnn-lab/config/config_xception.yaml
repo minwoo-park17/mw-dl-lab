@@ -1,0 +1,15 @@
+training:
+  lr: 0.001
+  weight-decay: 0.001
+  bs: 8
+  early-stop: 20
+
+  # 데이터 샘플링 설정
+  sampling:
+    strategy: "weighted"    # "weighted" | "balanced" | "none"
+    epoch_mode: "full"      # "minority" | "full"
+
+model:
+  name: xception
+  image-size: 299           # Xception pretrained input size
+  num-classes: 1

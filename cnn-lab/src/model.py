@@ -1,88 +1,32 @@
 """
 Model definitions for deepfake classification.
+
+Supports any timm model: xception, resnet, efficientnet, mobilenet, etc.
 """
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from timm import create_model
 
 
-class FFTModule(nn.Module):
-    """FFT-based frequency feature extraction module."""
+class EfficientNetB4Classifier(nn.Module):
+    """
+    EfficientNet-B4 classifier for deepfake detection.
 
-    def __init__(self):
+    Pretrained input size: 380x380
+    """
+    IMAGE_SIZE = 380  # EfficientNet-B4 pretrained input size
+
+    def __init__(self, num_classes: int = 1, pretrained: bool = True):
         super().__init__()
+        self.model = create_model(
+            'efficientnet_b4',
+            pretrained=pretrained,
+            num_classes=num_classes
+        )
+        self.num_features = self.model.num_features
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Extract frequency features using FFT.
-
-        Args:
-            x: Input tensor [B, C, H, W]
-
-        Returns:
-            FFT magnitude tensor [B, C, H, W]
-        """
-        fft = torch.fft.fft2(x)
-        fft_shift = torch.fft.fftshift(fft)
-        magnitude = torch.abs(fft_shift)
-        magnitude = torch.log1p(magnitude)  # Stabilize values
-        return magnitude
-
-
-class XceptionWithFFT(nn.Module):
-    """Xception model with FFT frequency features."""
-
-    def __init__(self, num_classes: int = 1):
-        """
-        Initialize XceptionWithFFT model.
-
-        Args:
-            num_classes: Number of output classes (1 for binary classification)
-        """
-        super().__init__()
-        self.fft_module = FFTModule()
-
-        # Pretrained Xception
-        self.base_model = create_model('xception', pretrained=True)
-
-        # Remove original classifier
-        self.base_model.fc = nn.Identity()
-
-        # Channel reduction (6 -> 3)
-        self.reduce_channels = nn.Conv2d(6, 3, kernel_size=1)
-
-        # Custom classifier
-        self.classifier = nn.Linear(self.base_model.num_features, num_classes)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass.
-
-        Args:
-            x: Input tensor [B, 3, H, W]
-
-        Returns:
-            Output logits [B, num_classes]
-        """
-        # Extract FFT frequency features
-        x_fft = self.fft_module(x)
-
-        # Normalize FFT features
-        x_fft = (x_fft - x_fft.mean(dim=[1, 2, 3], keepdim=True)) / \
-                (x_fft.std(dim=[1, 2, 3], keepdim=True) + 1e-6)
-
-        # Concatenate spatial and frequency features
-        x_combined = torch.cat([x, x_fft], dim=1)
-
-        # Reduce to 3 channels for Xception
-        x_combined = self.reduce_channels(x_combined)
-
-        # Xception forward
-        feat = self.base_model(x_combined)
-        out = self.classifier(feat)
-
-        return out
+        return self.model(x)
 
 
 def create_classifier_model(
@@ -91,24 +35,26 @@ def create_classifier_model(
     pretrained: bool = True
 ) -> nn.Module:
     """
-    Create a classifier model.
+    Create a classifier model using timm.
 
     Args:
-        model_name: Name of the model (e.g., 'xception', 'xception_fft')
+        model_name: Any timm model name (e.g., 'xception', 'resnet50', 'efficientnet_b0')
         num_classes: Number of output classes
         pretrained: Whether to use pretrained weights
 
     Returns:
         Model instance
+
+    Examples:
+        >>> model = create_classifier_model('xception', num_classes=1)
+        >>> model = create_classifier_model('resnet50', num_classes=1)
+        >>> model = create_classifier_model('efficientnet_b0', num_classes=1)
     """
-    if model_name == "xception_fft":
-        return XceptionWithFFT(num_classes=num_classes)
-
-    # Default: use timm model
-    model = create_model(model_name, pretrained=pretrained)
-    in_features = model.get_classifier().in_features
-    model.fc = nn.Linear(in_features, num_classes)
-
+    model = create_model(
+        model_name,
+        pretrained=pretrained,
+        num_classes=num_classes
+    )
     return model
 
 
@@ -116,13 +62,38 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    # Test XceptionWithFFT
+    # Test xception
+    print("\n--- Testing xception ---")
+    model = create_classifier_model('xception', num_classes=1, pretrained=False)
     dummy_input = torch.randn(4, 3, 299, 299)
-    model = XceptionWithFFT(num_classes=1)
 
     with torch.no_grad():
         output = model(dummy_input)
 
     print(f"Input shape: {dummy_input.shape}")
     print(f"Output shape: {output.shape}")
-    print(f"Output values: {output.squeeze().tolist()}")
+    print(f"Feature dim: {model.num_features}")
+
+    # Test resnet18
+    print("\n--- Testing resnet18 ---")
+    model_resnet = create_classifier_model('resnet18', num_classes=1, pretrained=False)
+
+    with torch.no_grad():
+        output_resnet = model_resnet(torch.randn(4, 3, 224, 224))
+
+    print(f"Output shape: {output_resnet.shape}")
+    print(f"Feature dim: {model_resnet.num_features}")
+
+    # Test EfficientNetB4Classifier
+    print("\n--- Testing EfficientNetB4Classifier ---")
+    model_effb4 = EfficientNetB4Classifier(num_classes=1, pretrained=False)
+    img_size = EfficientNetB4Classifier.IMAGE_SIZE
+    dummy_input_effb4 = torch.randn(4, 3, img_size, img_size)
+
+    with torch.no_grad():
+        output_effb4 = model_effb4(dummy_input_effb4)
+
+    print(f"Input shape: {dummy_input_effb4.shape}")
+    print(f"Output shape: {output_effb4.shape}")
+    print(f"Feature dim: {model_effb4.num_features}")
+    print(f"Recommended image size: {EfficientNetB4Classifier.IMAGE_SIZE}")

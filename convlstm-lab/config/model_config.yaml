@@ -1,0 +1,49 @@
+model:
+  backbone: "resnet18"      # resnet18, resnet34, efficientnet_b0
+  pretrained: true
+  freeze_backbone: false
+
+  convlstm:
+    hidden_channels: [64, 128]
+    kernel_size: 3
+    num_layers: 2
+    bidirectional: false
+
+  classifier:
+    dropout: 0.5
+    num_classes: 2
+
+training:
+  batch_size: 8
+  epochs: 50
+  learning_rate: 0.0001
+  weight_decay: 0.01
+
+  optimizer:
+    type: "adamw"
+    betas: [0.9, 0.999]
+
+  scheduler:
+    type: "cosine"
+    warmup_epochs: 5
+    min_lr: 0.000001
+
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.001
+
+  gradient_clip: 1.0
+  use_amp: true            # Mixed Precision Training
+
+checkpoint:
+  save_dir: "checkpoints"
+  save_best: true
+  save_last: true
+
+logging:
+  log_dir: "logs"
+  log_interval: 10         # 배치 단위 로깅 간격
+
+device: "cuda"
+seed: 42

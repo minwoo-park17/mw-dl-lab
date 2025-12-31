@@ -1,0 +1,41 @@
+# Default Configuration
+# Common settings shared across all models
+
+# Random seed for reproducibility
+seed: 42
+
+# Device settings
+device:
+  gpu_ids: [0]  # List of GPU IDs to use
+  cudnn_benchmark: true
+  cudnn_deterministic: false
+
+# Logging settings
+logging:
+  use_wandb: true
+  use_tensorboard: true
+  wandb_project: "mamba-forgery-detection"
+  wandb_entity: null  # Set your wandb username
+  log_interval: 100  # Log every N iterations
+  save_interval: 1  # Save checkpoint every N epochs
+
+# Output directories
+output:
+  base_dir: "outputs"
+  checkpoint_dir: "checkpoints"
+  log_dir: "logs"
+  vis_dir: "visualizations"
+
+# Common training settings
+train:
+  num_workers: 4
+  pin_memory: true
+  gradient_clip: 1.0
+  early_stopping:
+    patience: 10
+    min_delta: 0.001
+
+# Common evaluation settings
+eval:
+  batch_size: 32
+  num_workers: 4

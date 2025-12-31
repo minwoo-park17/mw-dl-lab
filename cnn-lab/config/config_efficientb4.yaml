@@ -1,0 +1,15 @@
+training:
+  lr: 0.0002
+  weight-decay: 0.01
+  bs: 8
+  early-stop: 20
+
+  # 데이터 샘플링 설정
+  sampling:
+    strategy: "none"    # "weighted" | "balanced" | "none"
+    epoch_mode: "full"      # "minority" | "full"
+
+model:
+  name: efficientnet_b4
+  image-size: 380           # EfficientNet-B4 pretrained input size
+  num-classes: 1

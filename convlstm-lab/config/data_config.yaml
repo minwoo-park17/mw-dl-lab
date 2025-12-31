@@ -1,0 +1,26 @@
+data:
+  train_dir: "data/train"
+  val_dir: "data/val"
+  test_dir: "data/test"
+
+sequence:
+  length: 16              # 연속 프레임 수
+  stride: 8               # 샘플링 간격 (슬라이딩 윈도우)
+
+image:
+  height: 224
+  width: 224
+  channels: 3
+
+augmentation:
+  enabled: true
+  horizontal_flip: true
+  random_crop: true
+  color_jitter: true
+  normalize:
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+
+dataloader:
+  num_workers: 4
+  pin_memory: true

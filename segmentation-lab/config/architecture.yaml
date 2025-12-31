@@ -1,0 +1,46 @@
+# Segmentation Model Configuration
+
+# 모델 설정
+model:
+  name: "unet"
+  encoder: "efficientnet-b4"
+  pretrained: true
+  in_channels: 3
+  num_classes: 1  # binary segmentation
+
+# 학습 설정
+training:
+  batch_size: 8
+  epochs: 100
+
+  # AdamW 설정
+  optimizer: "adamw"
+  learning_rate: 0.0001  # 1e-4
+  weight_decay: 0.01
+
+  # 스케줄러
+  scheduler: "cosine"
+
+  # 조기 종료
+  early_stopping:
+    enabled: true
+    patience: 15
+    min_delta: 0.001
+
+# 손실 함수 설정
+loss:
+  name: "bce_dice"
+  dice_weight: 0.5
+  bce_weight: 0.5
+
+# 체크포인트 설정
+checkpoint:
+  save_dir: "results"
+  monitor: "val_dice"
+  mode: "max"
+
+# 로깅 설정
+logging:
+  log_dir: "logs"
+  tensorboard: true
+  print_freq: 10

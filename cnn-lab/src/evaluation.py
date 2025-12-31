@@ -2,7 +2,6 @@
 Evaluation script for deepfake classification.
 """
 import os
-import argparse
 import logging
 
 import yaml
@@ -137,50 +136,23 @@ def evaluate(
     }
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Evaluate deepfake classifier")
-    parser.add_argument(
-        "--data-config",
-        type=str,
-        required=True,
-        help="Path to data configuration YAML file"
-    )
-    parser.add_argument(
-        "--model-config",
-        type=str,
-        required=True,
-        help="Path to model configuration YAML file"
-    )
-    parser.add_argument(
-        "--weight-path",
-        type=str,
-        required=True,
-        help="Path to model weights"
-    )
-    parser.add_argument(
-        "--save-dir",
-        type=str,
-        required=True,
-        help="Directory to save evaluation results"
-    )
-    parser.add_argument(
-        "--folder-name",
-        type=str,
-        default="test_results",
-        help="Name for results folder"
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=1,
-        help="Batch size for evaluation"
-    )
-    args = parser.parse_args()
+if __name__ == "__main__":
+    ### PATH ###
+    RESULT_NAME = "train_YYMMDDHHM"  # 수정 필요
+    BASE_DIR = rf"./results/{RESULT_NAME}"
 
-    # Load configs
-    with open(args.data_config, 'r', encoding='utf-8') as f:
+    DATA_CONFIG_PATH = rf"{BASE_DIR}/data_config.yaml"
+    MODEL_CONFIG_PATH = rf"{BASE_DIR}/architecture.yaml"
+    WEIGHT_PATH = rf"{BASE_DIR}/Epoch_BEST/weight/Epoch_BEST.pth"
+    SAVE_RESULTS_DIR = rf"{BASE_DIR}/Analysis"
+
+    FOLDER_NAME = "test_results"
+    BATCH_SIZE = 8
+
+    ### OPEN CONFIG FILE ###
+    with open(DATA_CONFIG_PATH, 'r', encoding='utf-8') as f:
         data_config = yaml.safe_load(f)
-    with open(args.model_config, 'r', encoding='utf-8') as f:
+    with open(MODEL_CONFIG_PATH, 'r', encoding='utf-8') as f:
         model_config = yaml.safe_load(f)
 
     # Setup device
@@ -191,38 +163,33 @@ def main():
     img_size = model_config["model"]["image-size"]
 
     test_dataset = CnnDataset(
-        data_config_path=args.data_config,
+        data_config_path=DATA_CONFIG_PATH,
         data_class="test",
         img_size=img_size,
-        printcheck=True,
-        enable_augmentation=False
+        printcheck=True
     )
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
     # Create and load model
     num_classes = model_config["model"]["num-classes"]
     model_name = model_config["model"]["name"]
 
-    model = create_classifier_model(model_name, num_classes=num_classes, pretrained=True)
+    model = create_classifier_model(model_name, num_classes=num_classes, pretrained=False)
 
-    state_dict = torch.load(args.weight_path, map_location="cpu", weights_only=True)
+    state_dict = torch.load(WEIGHT_PATH, map_location="cpu", weights_only=True)
     model.load_state_dict(state_dict, strict=False)
-    logger.info(f"Loaded weights from: {args.weight_path}")
+    logger.info(f"Loaded weights from: {WEIGHT_PATH}")
 
     model.to(device)
 
     # Evaluate
     result = evaluate(
-        data_config_path=args.data_config,
+        data_config_path=DATA_CONFIG_PATH,
         device=device,
         model=model,
-        save_results_dir=args.save_dir,
+        save_results_dir=SAVE_RESULTS_DIR,
         test_loader=test_loader,
-        folder_name=args.folder_name
+        folder_name=FOLDER_NAME
     )
 
     logger.info(f"Evaluation completed. Accuracy: {result['accuracy']:.4f}")
-
-
-if __name__ == "__main__":
-    main()

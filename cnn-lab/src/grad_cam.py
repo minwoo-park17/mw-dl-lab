@@ -2,7 +2,6 @@
 Grad-CAM visualization for deepfake classification.
 """
 import os
-import argparse
 import logging
 from typing import Optional, List
 
@@ -201,56 +200,22 @@ def generate_gradcam(
     logger.info(f"Grad-CAM visualizations saved to: {save_dir}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Generate Grad-CAM visualizations")
-    parser.add_argument(
-        "--csv-path",
-        type=str,
-        required=True,
-        help="Path to CSV file with prediction results"
-    )
-    parser.add_argument(
-        "--model-config",
-        type=str,
-        required=True,
-        help="Path to model configuration YAML file"
-    )
-    parser.add_argument(
-        "--weight-path",
-        type=str,
-        required=True,
-        help="Path to model weights"
-    )
-    parser.add_argument(
-        "--save-dir",
-        type=str,
-        required=True,
-        help="Directory to save Grad-CAM visualizations"
-    )
-    parser.add_argument(
-        "--actual-label",
-        type=int,
-        default=1,
-        choices=[0, 1],
-        help="Filter by actual label (0=real, 1=fake)"
-    )
-    parser.add_argument(
-        "--predict-label",
-        type=int,
-        default=1,
-        choices=[0, 1],
-        help="Filter by predicted label (0=real, 1=fake)"
-    )
-    parser.add_argument(
-        "--layer-name",
-        type=str,
-        default=None,
-        help="Specific layer name for Grad-CAM (optional)"
-    )
-    args = parser.parse_args()
+if __name__ == "__main__":
+    ### PATH ###
+    RESULT_NAME = "train_YYMMDDHHM"  # 수정 필요
+    BASE_DIR = rf"./results/{RESULT_NAME}"
 
-    # Load config
-    with open(args.model_config, 'r', encoding='utf-8') as f:
+    CSV_PATH = rf"{BASE_DIR}/Analysis/test_results/pred_results_info.csv"
+    MODEL_CONFIG_PATH = rf"{BASE_DIR}/architecture.yaml"
+    WEIGHT_PATH = rf"{BASE_DIR}/Epoch_BEST/weight/Epoch_BEST.pth"
+    SAVE_DIR = rf"{BASE_DIR}/GradCAM"
+
+    ACTUAL_LABEL = 1   # 0=real, 1=fake
+    PREDICT_LABEL = 0  # 0=real, 1=fake
+    LAYER_NAME = None  # None이면 자동 감지
+
+    ### OPEN CONFIG FILE ###
+    with open(MODEL_CONFIG_PATH, 'r', encoding='utf-8') as f:
         model_config = yaml.safe_load(f)
 
     # Setup
@@ -262,31 +227,27 @@ def main():
     model_name = model_config["model"]["name"]
 
     # Create save directory
-    save_subdir = os.path.join(args.save_dir, f"{args.actual_label}_{args.predict_label}")
+    save_subdir = os.path.join(SAVE_DIR, f"{ACTUAL_LABEL}_{PREDICT_LABEL}")
     os.makedirs(save_subdir, exist_ok=True)
 
     # Load model
-    model = create_classifier_model(model_name, num_classes=num_classes, pretrained=True)
+    model = create_classifier_model(model_name, num_classes=num_classes, pretrained=False)
 
-    checkpoint = torch.load(args.weight_path, map_location=device, weights_only=True)
+    checkpoint = torch.load(WEIGHT_PATH, map_location=device, weights_only=True)
     model.load_state_dict(checkpoint)
-    logger.info(f"Loaded weights from: {args.weight_path}")
+    logger.info(f"Loaded weights from: {WEIGHT_PATH}")
 
     model.to(device)
 
     # Generate visualizations
     generate_gradcam(
-        csv_path=args.csv_path,
+        csv_path=CSV_PATH,
         device=device,
         model=model,
         model_name=model_name,
-        actual_label=args.actual_label,
-        predict_label=args.predict_label,
+        actual_label=ACTUAL_LABEL,
+        predict_label=PREDICT_LABEL,
         save_dir=save_subdir,
         img_size=img_size,
-        layer_name=args.layer_name
+        layer_name=LAYER_NAME
     )
-
-
-if __name__ == "__main__":
-    main()

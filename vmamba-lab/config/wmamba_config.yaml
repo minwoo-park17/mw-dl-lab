@@ -1,0 +1,108 @@
+# WMamba Configuration
+# Face Forgery Detection with Wavelet-based Mamba
+
+defaults:
+  - default
+
+# Model Configuration
+model:
+  name: "wmamba"
+
+  # Wavelet settings
+  wavelet:
+    type: "db1"  # Daubechies wavelet (db1, db2, haar, etc.)
+    levels: 3    # Number of decomposition levels
+
+  # VMamba backbone settings
+  backbone:
+    type: "vmamba_tiny"  # vmamba_tiny, vmamba_small, vmamba_base
+    pretrained: true
+    drop_path_rate: 0.2
+
+  # HWFEB settings (Hierarchical Wavelet Feature Extraction Branch)
+  hwfeb:
+    channels: [64, 128, 256]
+    use_dcconv: true
+
+  # DCConv settings (Dynamic Contour Convolution)
+  dcconv:
+    kernel_size: 3
+    num_points: 9  # Number of deformable points
+
+  # Classifier head
+  classifier:
+    hidden_dim: 512
+    dropout: 0.5
+    num_classes: 2  # Real vs Fake
+
+# Training Configuration
+train:
+  batch_size: 32
+  epochs: 50
+
+  # Optimizer
+  optimizer:
+    type: "adamw"
+    lr: 1.0e-4
+    weight_decay: 0.05
+    betas: [0.9, 0.999]
+
+  # Learning rate scheduler
+  scheduler:
+    type: "cosine"
+    warmup_epochs: 5
+    min_lr: 1.0e-6
+
+  # Loss function
+  loss:
+    type: "focal"  # focal, bce, cross_entropy
+    focal_gamma: 2.0
+    focal_alpha: 0.25
+    label_smoothing: 0.1
+
+  # Data augmentation
+  augmentation:
+    horizontal_flip: true
+    rotation: 15
+    color_jitter:
+      brightness: 0.2
+      contrast: 0.2
+      saturation: 0.2
+      hue: 0.1
+    random_erasing: 0.25
+    gaussian_blur: true
+    jpeg_compression: [30, 100]  # Random JPEG quality
+
+# Data Configuration
+data:
+  input_size: 256
+
+  # Training dataset
+  train:
+    dataset: "ff++"
+    compression: "c23"  # c23 or c40
+    methods: ["Deepfakes", "Face2Face", "FaceSwap", "NeuralTextures"]
+    split: "train"
+
+  # Validation dataset
+  val:
+    dataset: "ff++"
+    compression: "c23"
+    methods: ["Deepfakes", "Face2Face", "FaceSwap", "NeuralTextures"]
+    split: "val"
+
+  # Test datasets (cross-dataset evaluation)
+  test:
+    - name: "ff++"
+      compression: "c23"
+      split: "test"
+    - name: "celeb-df"
+      version: "v2"
+    - name: "dfdc"
+      subset: "preview"  # preview or full
+
+# Evaluation Configuration
+eval:
+  metrics: ["auc", "acc", "eer", "ap"]
+  threshold: 0.5
+  save_predictions: true

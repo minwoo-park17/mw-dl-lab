@@ -2,10 +2,9 @@
 Training script for deepfake classification.
 """
 import os
-import argparse
 import datetime
 import logging
-from typing import Optional
+import random
 
 import yaml
 import numpy as np
@@ -17,11 +16,11 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm import tqdm
-from timm import create_model
 
 from dataset import LoadDataInfo, CnnDataset
 from model import create_classifier_model
 from utils import check_correct, postprocess
+from sampler import create_sampler
 
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -33,6 +32,32 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Configuration - 여기서 값을 수정하세요
+# =============================================================================
+DATA_CONFIG_PATH = "config/data_config.yaml"          # 데이터 설정 파일 경로
+MODEL_CONFIG_PATH = "config/config_efficientb4.yaml"  # 모델 설정 파일 경로 (config_xception.yaml / config_efficientb4.yaml)
+SAVE_DIR = "./results"                            # 결과 저장 디렉토리
+WEIGHT_PATH = None                                # 사전학습 가중치 경로 (없으면 None)
+EPOCHS = 200                                      # 학습 에폭 수
+BEST_CONDITION = "loss"                           # 최적 모델 선택 기준 ("loss" or "acc")
+SEED = 42                                         # 랜덤 시드
+
+
+def set_seed(seed: int = 42) -> None:
+    """
+    Set random seed for reproducibility.
+
+    Args:
+        seed: Random seed value
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def train(
@@ -330,50 +355,14 @@ def _save_training_curves(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train deepfake classifier")
-    parser.add_argument(
-        "--data-config",
-        type=str,
-        required=True,
-        help="Path to data configuration YAML file"
-    )
-    parser.add_argument(
-        "--model-config",
-        type=str,
-        required=True,
-        help="Path to model configuration YAML file"
-    )
-    parser.add_argument(
-        "--save-dir",
-        type=str,
-        required=True,
-        help="Directory to save training results"
-    )
-    parser.add_argument(
-        "--weight-path",
-        type=str,
-        default=None,
-        help="Path to pretrained weights (optional)"
-    )
-    parser.add_argument(
-        "--epochs",
-        type=int,
-        default=200,
-        help="Number of training epochs"
-    )
-    parser.add_argument(
-        "--best-condition",
-        type=str,
-        default="loss",
-        choices=["loss", "acc"],
-        help="Criterion for best model selection"
-    )
-    args = parser.parse_args()
+    # Set random seed
+    set_seed(SEED)
+    logger.info(f"Random seed set to: {SEED}")
 
     # Load configs
-    with open(args.data_config, 'r', encoding='utf-8') as f:
+    with open(DATA_CONFIG_PATH, 'r', encoding='utf-8') as f:
         data_config = yaml.safe_load(f)
-    with open(args.model_config, 'r', encoding='utf-8') as f:
+    with open(MODEL_CONFIG_PATH, 'r', encoding='utf-8') as f:
         model_config = yaml.safe_load(f)
 
     # Setup device
@@ -385,21 +374,37 @@ def main():
     img_size = model_config["model"]["image-size"]
 
     train_dataset = CnnDataset(
-        data_config_path=args.data_config,
+        data_config_path=DATA_CONFIG_PATH,
         data_class="train",
         img_size=img_size,
-        printcheck=True,
-        enable_augmentation=True
+        printcheck=True
     )
     valid_dataset = CnnDataset(
-        data_config_path=args.data_config,
+        data_config_path=DATA_CONFIG_PATH,
         data_class="validation",
         img_size=img_size,
-        printcheck=True,
-        enable_augmentation=False
+        printcheck=True
     )
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    # Setup sampler for class balancing
+    sampling_config = model_config["training"].get("sampling", {})
+    sampling_strategy = sampling_config.get("strategy", "none")
+    epoch_mode = sampling_config.get("epoch_mode", "full")
+
+    train_sampler = create_sampler(
+        strategy=sampling_strategy,
+        labels=train_dataset.labels,
+        batch_size=batch_size,
+        epoch_mode=epoch_mode
+    )
+
+    # Create DataLoaders
+    # Note: shuffle과 sampler는 동시에 사용 불가
+    if train_sampler is not None:
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler)
+    else:
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
     valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
 
     # Create model
@@ -408,24 +413,24 @@ def main():
 
     model = create_classifier_model(model_name, num_classes=num_classes, pretrained=True)
 
-    if args.weight_path is not None:
-        state_dict = torch.load(args.weight_path, map_location="cpu", weights_only=True)
+    if WEIGHT_PATH is not None:
+        state_dict = torch.load(WEIGHT_PATH, map_location="cpu", weights_only=True)
         model.load_state_dict(state_dict, strict=False)
-        logger.info(f"Loaded weights from: {args.weight_path}")
+        logger.info(f"Loaded weights from: {WEIGHT_PATH}")
 
     model.to(device)
 
     # Train
     result = train(
-        data_config_path=args.data_config,
+        data_config_path=DATA_CONFIG_PATH,
         model_config=model_config,
         device=device,
         model=model,
-        save_results_dir=args.save_dir,
+        save_results_dir=SAVE_DIR,
         train_loader=train_loader,
         valid_loader=valid_loader,
-        epochs=args.epochs,
-        best_condition=args.best_condition
+        epochs=EPOCHS,
+        best_condition=BEST_CONDITION
     )
 
     logger.info(f"Training completed. Results saved to: {result['save_dir']}")
