@@ -1,5 +1,8 @@
 """
-Training script for deepfake classification.
+Training script for CLIP-based deepfake detection (UnivFD).
+
+UnivFD trains only the linear classifier while keeping CLIP backbone frozen.
+This results in very fast training with minimal trainable parameters (~769).
 """
 import os
 import datetime
@@ -17,10 +20,9 @@ from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm import tqdm
 
-from dataset import LoadDataInfo, CnnDataset
-from model import create_classifier_model
+from dataset import LoadDataInfo, ClipDataset
+from model import create_univfd_model
 from utils import check_correct, postprocess
-from sampler import create_sampler
 
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -36,11 +38,10 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # Configuration - 여기서 값을 수정하세요
 # =============================================================================
-DATA_CONFIG_PATH = "config/data_config.yaml"          # 데이터 설정 파일 경로
-MODEL_CONFIG_PATH = "config/config_efficientb4.yaml"  # 모델 설정 파일 경로 (config_xception.yaml / config_efficientb4.yaml)
+DATA_CONFIG_PATH = "config/data_config.yaml"      # 데이터 설정 파일 경로
+MODEL_CONFIG_PATH = "config/model_config.yaml"    # 모델 설정 파일 경로
 SAVE_DIR = "./results"                            # 결과 저장 디렉토리
 WEIGHT_PATH = None                                # 사전학습 가중치 경로 (없으면 None)
-EPOCHS = 200                                      # 학습 에폭 수
 BEST_CONDITION = "loss"                           # 최적 모델 선택 기준 ("loss" or "acc")
 SEED = 42                                         # 랜덤 시드
 
@@ -68,17 +69,19 @@ def train(
     save_results_dir: str,
     train_loader: DataLoader,
     valid_loader: DataLoader,
-    epochs: int = 200,
+    epochs: int = 50,
     best_condition: str = "loss"
 ) -> dict:
     """
-    Train the model.
+    Train the UnivFD model.
+
+    Only the linear classifier is trained; CLIP backbone remains frozen.
 
     Args:
         data_config_path: Path to data configuration file
         model_config: Model configuration dictionary
         device: Device to train on
-        model: Model to train
+        model: UnivFD model to train
         save_results_dir: Directory to save results
         train_loader: Training data loader
         valid_loader: Validation data loader
@@ -88,15 +91,19 @@ def train(
     Returns:
         Training results dictionary
     """
-    # Setup optimizer and scheduler
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
+    # Setup optimizer (only for classifier parameters)
+    optimizer = torch.optim.Adam(
+        model.get_trainable_params(),  # Only classifier parameters
         lr=model_config['training']['lr'],
-        weight_decay=model_config['training']['weight-decay'],
-        betas=(0.9, 0.999),
-        eps=1e-8
+        weight_decay=model_config['training']['weight_decay']
     )
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.5, min_lr=1e-6)
+    scheduler = ReduceLROnPlateau(
+        optimizer,
+        mode='min',
+        patience=model_config['training']['scheduler']['patience'],
+        factor=model_config['training']['scheduler']['factor'],
+        min_lr=1e-6
+    )
 
     # Calculate class weights for imbalanced data
     load_data_info = LoadDataInfo(data_config_path=data_config_path, data_class="train", printcheck=False)
@@ -110,7 +117,7 @@ def train(
         bias_weight = torch.tensor([1.0], device=device)
 
     loss_fn = nn.BCEWithLogitsLoss(pos_weight=bias_weight)
-    early_stop = model_config['training']['early-stop']
+    early_stop = model_config['training']['early_stop']
     early_stop_count = 0
 
     best_loss = np.inf
@@ -134,16 +141,16 @@ def train(
     with open(data_config_path, 'r', encoding='utf-8') as f:
         data_config = yaml.safe_load(f)
 
-    with open(os.path.join(base_save_dir, "architecture.yaml"), 'w', encoding='utf-8') as f:
+    with open(os.path.join(base_save_dir, "model_config.yaml"), 'w', encoding='utf-8') as f:
         yaml.dump(model_config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
     with open(os.path.join(base_save_dir, "data_config.yaml"), 'w', encoding='utf-8') as f:
         yaml.dump(data_config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
-    # Save source code files as txt
+    # Save source files as txt for backup
     txt_save_dir = os.path.join(base_save_dir, "txt")
     os.makedirs(txt_save_dir, exist_ok=True)
-    src_files = ["augmentation.py", "train.py", "model.py", "dataset.py"]
+    src_files = ["augmentation.py", "train.py", "model.py", "dataset.py", "evaluation.py", "utils.py"]
     for src_file in src_files:
         src_path = os.path.join(os.path.dirname(__file__), src_file)
         if os.path.exists(src_path):
@@ -154,6 +161,7 @@ def train(
 
     logger.info(f"Training started. Results will be saved to: {base_save_dir}")
     logger.info(f"Total epochs: {epochs}, Early stop patience: {early_stop}")
+    logger.info(f"Trainable parameters: {model.get_num_trainable_params()}")
 
     # Training loop
     actual_epochs = 0
@@ -172,8 +180,8 @@ def train(
         train_cm_total = np.zeros((2, 2))
         n_train_data = 0
 
-        # Training phase
-        model.train()
+        # Training phase (only classifier trains)
+        model.classifier.train()  # Only classifier in train mode
         for data in tqdm(train_loader, desc=f"Epoch {epoch} - Training"):
             images = data["input"].to(device=device, dtype=torch.float32)
             labels = torch.unsqueeze(data["label"], dim=1).to(device=device, dtype=torch.float32)
@@ -289,7 +297,8 @@ def train(
             epoch_model_weight_path = os.path.join(epoch_model_save_dir, "Epoch_BEST.pth")
 
             postprocess(results_info=results_info, save_dir=epoch_save_dir)
-            torch.save(model.state_dict(), epoch_model_weight_path)
+            # Save only classifier weights (much smaller file)
+            torch.save(model.classifier.state_dict(), epoch_model_weight_path)
             logger.info(">>> Best model updated!")
             early_stop_count = 0
         else:
@@ -313,7 +322,7 @@ def train(
     epoch_model_weight_path = os.path.join(epoch_model_save_dir, "Epoch_LAST.pth")
 
     postprocess(results_info=results_info, save_dir=epoch_save_dir)
-    torch.save(model.state_dict(), epoch_model_weight_path)
+    torch.save(model.classifier.state_dict(), epoch_model_weight_path)
 
     logger.info(f"Training completed. Best epoch: {best_epoch}")
 
@@ -354,14 +363,14 @@ def _save_training_curves(
     # Accuracy plot
     plt.figure(figsize=(6, 5))
     sns.lineplot(data=combined_df, hue="data", x="epoch", y="accuracy")
-    plt.title('Accuracy per Epoch')
+    plt.title('Accuracy per Epoch (UnivFD)')
     plt.savefig(os.path.join(save_dir, "acc_per_epoch_line.png"))
     plt.close()
 
     # Loss plot
     plt.figure(figsize=(6, 5))
     sns.lineplot(data=combined_df, hue="data", x="epoch", y="loss")
-    plt.title('Loss per Epoch')
+    plt.title('Loss per Epoch (UnivFD)')
     plt.savefig(os.path.join(save_dir, "loss_per_epoch_line.png"))
     plt.close()
 
@@ -383,56 +392,46 @@ def main():
 
     # Load datasets
     batch_size = model_config["training"]["bs"]
-    img_size = model_config["model"]["image-size"]
+    img_size = model_config["model"]["image_size"]
 
-    train_dataset = CnnDataset(
+    train_dataset = ClipDataset(
         data_config_path=DATA_CONFIG_PATH,
         data_class="train",
         img_size=img_size,
         printcheck=True
     )
-    valid_dataset = CnnDataset(
+    valid_dataset = ClipDataset(
         data_config_path=DATA_CONFIG_PATH,
         data_class="validation",
         img_size=img_size,
         printcheck=True
     )
 
-    # Setup sampler for class balancing
-    sampling_config = model_config["training"].get("sampling", {})
-    sampling_strategy = sampling_config.get("strategy", "none")
-    epoch_mode = sampling_config.get("epoch_mode", "full")
-
-    train_sampler = create_sampler(
-        strategy=sampling_strategy,
-        labels=train_dataset.labels,
-        batch_size=batch_size,
-        epoch_mode=epoch_mode
-    )
-
     # Create DataLoaders
-    # Note: shuffle과 sampler는 동시에 사용 불가
-    if train_sampler is not None:
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler)
-    else:
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
 
     # Create model
-    num_classes = model_config["model"]["num-classes"]
-    model_name = model_config["model"]["name"]
+    clip_model_name = model_config["model"]["clip_model"]
+    num_classes = model_config["model"]["num_classes"]
+    freeze_backbone = model_config["model"]["freeze_backbone"]
 
-    model = create_classifier_model(model_name, num_classes=num_classes, pretrained=True)
+    model = create_univfd_model(
+        clip_model_name=clip_model_name,
+        num_classes=num_classes,
+        freeze_backbone=freeze_backbone,
+        device=str(device)
+    )
 
     if WEIGHT_PATH is not None:
         state_dict = torch.load(WEIGHT_PATH, map_location="cpu", weights_only=True)
-        model.load_state_dict(state_dict, strict=False)
-        logger.info(f"Loaded weights from: {WEIGHT_PATH}")
+        model.classifier.load_state_dict(state_dict, strict=False)
+        logger.info(f"Loaded classifier weights from: {WEIGHT_PATH}")
 
     model.to(device)
 
     # Train
+    epochs = model_config["training"]["epochs"]
     result = train(
         data_config_path=DATA_CONFIG_PATH,
         model_config=model_config,
@@ -441,7 +440,7 @@ def main():
         save_results_dir=SAVE_DIR,
         train_loader=train_loader,
         valid_loader=valid_loader,
-        epochs=EPOCHS,
+        epochs=epochs,
         best_condition=BEST_CONDITION
     )
 

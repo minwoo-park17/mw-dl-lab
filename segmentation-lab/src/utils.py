@@ -101,7 +101,7 @@ def create_scheduler(
         'cosine': lambda: CosineAnnealingLR(optimizer, T_max=epochs),
         'step': lambda: StepLR(optimizer, step_size=30, gamma=0.1),
         'plateau': lambda: ReduceLROnPlateau(
-            optimizer, mode='max', factor=0.5, patience=5
+            optimizer, mode='max', factor=0.5, patience=5, min_lr=1e-6
         ),
         'none': lambda: None
     }
@@ -293,13 +293,17 @@ class CheckpointManager:
         if data_config_path and Path(data_config_path).exists():
             shutil.copy(data_config_path, self.save_dir / "data.yaml")
 
-        # augmentation.py 내용 복사
-        aug_path = Path(__file__).parent / "augmentation.py"
-        if aug_path.exists():
-            with open(aug_path, 'r', encoding='utf-8') as f:
-                aug_content = f.read()
-            with open(self.save_dir / "augmentation.txt", 'w', encoding='utf-8') as f:
-                f.write(aug_content)
+        # 소스 파일들을 txt 폴더에 백업
+        txt_save_dir = self.save_dir / "txt"
+        txt_save_dir.mkdir(parents=True, exist_ok=True)
+        src_files = ["augmentation.py", "train.py", "model.py", "dataset.py", "utils.py", "validation.py"]
+        for src_file in src_files:
+            src_path = Path(__file__).parent / src_file
+            if src_path.exists():
+                with open(src_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                with open(txt_save_dir / f"{src_file}.txt", 'w', encoding='utf-8') as f:
+                    f.write(content)
 
         print(f"Results will be saved to: {self.save_dir}")
 

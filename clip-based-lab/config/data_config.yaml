@@ -1,0 +1,28 @@
+# Data Configuration for CLIP-based Lab (UnivFD)
+# 경로는 절대 경로 또는 프로젝트 루트 기준 상대 경로로 설정하세요.
+
+train:
+  fake:
+    - D:/Dataset/CoreDataset/centercrop_20260106_split/train/fake/*/*/*
+  real:
+    - D:/Dataset/CoreDataset/centercrop_20260106_split/train/real/*/*/*
+
+validation:
+  fake:
+    - D:/Dataset/CoreDataset/centercrop_20260106_split/validation/fake/*/*/*
+  real:
+    - D:/Dataset/CoreDataset/centercrop_20260106_split/validation/real/*/*/*
+
+test:
+  fake:
+    - D:/Dataset/CoreDataset/centercrop_20260106_split/test/fake/*/*/*
+  real:
+    - D:/Dataset/CoreDataset/centercrop_20260106_split/test/real/*/*/*
+
+support_type:
+  - .png
+  - .jpg
+  - .jpeg
+  - .bmp
+
+channel_format: RGB

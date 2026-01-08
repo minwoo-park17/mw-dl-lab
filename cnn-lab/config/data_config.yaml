@@ -1,28 +1,23 @@
-# Data Configuration
-# 경로는 절대 경로 또는 프로젝트 루트 기준 상대 경로로 설정하세요.
-# 예시: D:/datasets/deepfake/train/fake 또는 ./data/train/fake
-
-train:
+train: 
   fake:
-    # - D:/datasets/deepfake/train/fake
+  - /home/sands/Datas/TRAIN_AIGL_260106/mtcnn_20260106_x12_split/train/fake/*/*/*
   real:
-    # - D:/datasets/deepfake/train/real
-
+  - /home/sands/Datas/TRAIN_AIGL_260106/mtcnn_20260106_x12_split/train/real/*/*/*
 validation:
   fake:
-    # - D:/datasets/deepfake/validation/fake
+  - /home/sands/Datas/TRAIN_AIGL_260106/mtcnn_20260106_x12_split/validation/fake/*/*/*
   real:
-    # - D:/datasets/deepfake/validation/real
-
+  - /home/sands/Datas/TRAIN_AIGL_260106/mtcnn_20260106_x12_split/validation/real/*/*/*
 test:
   fake:
-    # - D:/datasets/deepfake/test/fake
+  - /home/sands/Datas/TRAIN_AIGL_260106/mtcnn_20260106_x12_split/test/fake/*/*/*
   real:
-    # - D:/datasets/deepfake/test/real
+  - /home/sands/Datas/TRAIN_AIGL_260106/mtcnn_20260106_x12_split/test/real/*/*/*
 
 support_type:
-  - .png
-  - .jpg
-  - .jpeg
-
+- .png
+- .jpg
+- .jpeg
+- .bmp
+- .mp4
 channel_format: RGB

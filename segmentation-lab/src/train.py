@@ -10,14 +10,13 @@ import warnings
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
+# 패키지 경로 추가 (직접 실행 지원)
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 # libpng warning 억제
 os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = str(2**40)
 warnings.filterwarnings("ignore", message=".*libpng.*")
 warnings.filterwarnings("ignore", message=".*iCCP.*")
-
-# 직접 실행 시 패키지 경로 추가
-if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
 import torch.nn as nn
@@ -26,35 +25,20 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
 from tqdm import tqdm
 
-# 직접 실행과 모듈 실행 모두 지원
-try:
-    from .model import create_model
-    from .dataset import create_dataloaders
-    from .validation import evaluate, calculate_metrics
-    from .utils import (
-        load_config,
-        setup_device,
-        create_optimizer,
-        create_scheduler,
-        create_loss_function,
-        EarlyStopping,
-        CheckpointManager,
-        AverageMeter
-    )
-except ImportError:
-    from src.model import create_model
-    from src.dataset import create_dataloaders
-    from src.validation import evaluate, calculate_metrics
-    from src.utils import (
-        load_config,
-        setup_device,
-        create_optimizer,
-        create_scheduler,
-        create_loss_function,
-        EarlyStopping,
-        CheckpointManager,
-        AverageMeter
-    )
+# 절대 import (sys.path에 프로젝트 루트 추가됨)
+from src.model import create_model
+from src.dataset import create_dataloaders
+from src.validation import evaluate, calculate_metrics
+from src.utils import (
+    load_config,
+    setup_device,
+    create_optimizer,
+    create_scheduler,
+    create_loss_function,
+    EarlyStopping,
+    CheckpointManager,
+    AverageMeter
+)
 
 
 class Trainer:

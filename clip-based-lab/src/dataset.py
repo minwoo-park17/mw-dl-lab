@@ -1,5 +1,5 @@
 """
-Dataset classes for deepfake image classification.
+Dataset classes for CLIP-based deepfake detection (UnivFD).
 """
 import os
 import glob
@@ -18,34 +18,6 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
-
-
-# =============================================================================
-# Utility Functions (선택적 사용)
-# Note: 샘플링 전략은 sampler.py 사용 권장
-# =============================================================================
-
-def shuffle_and_balance(
-    path_list: List[str],
-    label_list: List[int]
-) -> Tuple[List[str], List[int]]:
-    """
-    Shuffle paths and labels together.
-
-    Note: 이 함수는 유틸리티 함수입니다.
-          클래스 균형 샘플링은 sampler.py의 create_sampler() 사용을 권장합니다.
-
-    Args:
-        path_list: List of file paths
-        label_list: List of labels
-
-    Returns:
-        Shuffled paths and labels
-    """
-    combined = list(zip(path_list, label_list))
-    random.shuffle(combined)
-    shuffled_paths, shuffled_labels = zip(*combined)
-    return list(shuffled_paths), list(shuffled_labels)
 
 
 class LoadDataInfo:
@@ -130,18 +102,21 @@ class LoadDataInfo:
         return self._get_path_label()
 
 
-class CnnDataset(Dataset):
-    """Dataset for CNN-based deepfake classification."""
+class ClipDataset(Dataset):
+    """Dataset for CLIP-based deepfake detection."""
 
-    # ImageNet normalization constants
-    MEAN = [0.485, 0.456, 0.406]
-    STD = [0.229, 0.224, 0.225]
+    # CLIP normalization constants (same as ImageNet)
+    MEAN = [0.48145466, 0.4578275, 0.40821073]
+    STD = [0.26862954, 0.26130258, 0.27577711]
+
+    # MEAN = [0.485, 0.456, 0.406]
+    # STD = [0.229, 0.224, 0.225]
 
     def __init__(
         self,
         data_config_path: str,
         data_class: str,
-        img_size: int,
+        img_size: int = 224,
         printcheck: bool = True
     ):
         """
@@ -150,7 +125,7 @@ class CnnDataset(Dataset):
         Args:
             data_config_path: Path to data configuration file
             data_class: Data split ('train', 'validation', 'test')
-            img_size: Target image size
+            img_size: Target image size (224 for CLIP)
             printcheck: Whether to print data statistics
         """
         self.data_class = data_class
@@ -169,36 +144,18 @@ class CnnDataset(Dataset):
             n_real = sum(1 for l in self.labels if l == 0)
             logger.info(f"{data_class}: {n_fake} fake, {n_real} real, total {len(self.labels)}")
 
-        # Define transforms
+        # Define CLIP standard transforms (no augmentation for UnivFD)
         self._setup_transforms()
 
     def _setup_transforms(self):
-        """Setup image transforms."""
-        # 기본 transform (augmentation 없음)
+        """Setup CLIP standard image transforms."""
+        # CLIP standard preprocessing: Resize -> CenterCrop -> ToTensor -> Normalize
         self.transform = transforms.Compose([
-            transforms.Resize((self.img_size, self.img_size)),
+            transforms.Resize(self.img_size, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.CenterCrop(self.img_size),
             transforms.ToTensor(),
             transforms.Normalize(mean=self.MEAN, std=self.STD),
         ])
-
-        # ----------------------------------------------------------
-        # Augmentation 사용 시 아래 주석 해제
-        # ----------------------------------------------------------
-        from augmentation import (
-            TrainTransformReal, TrainTransformFake,
-            ValTransformReal, ValTransformFake,
-            TestTransform
-        )
-        
-        if self.data_class == "train":
-            self.transform_train_real = TrainTransformReal(img_size=self.img_size)
-            self.transform_train_fake = TrainTransformFake(img_size=self.img_size)
-        elif self.data_class == "validation":
-            self.transform_val_real = ValTransformReal(img_size=self.img_size)
-            self.transform_val_fake = ValTransformFake(img_size=self.img_size)
-        else:
-            self.transform_test = TestTransform(img_size=self.img_size)
-        # ----------------------------------------------------------
 
     def __len__(self) -> int:
         """Return dataset length."""
@@ -220,28 +177,11 @@ class CnnDataset(Dataset):
         # Load image
         img = Image.open(img_path).convert("RGB")
 
-        # Apply transform
-        # img_array = self.transform(img)
-
-        # ----------------------------------------------------------
-        # Augmentation 사용 시 위 transform 라인 주석 처리 후 아래 주석 해제
-        # ----------------------------------------------------------
-        if self.data_class == "train":
-            if label == 0:  # Real
-                img_array = self.transform_train_real(img)
-            else:           # Fake
-                img_array = self.transform_train_fake(img)
-        elif self.data_class == "validation":
-            if label == 0:  # Real
-                img_array = self.transform_val_real(img)
-            else:           # Fake
-                img_array = self.transform_val_fake(img)
-        else:  # test
-            img_array = self.transform_test(img)
-        # ----------------------------------------------------------
+        # Apply CLIP transform
+        img_tensor = self.transform(img)
 
         return {
-            'input': img_array,
+            'input': img_tensor,
             'label': label,
             'file_path': img_path
         }
@@ -251,20 +191,17 @@ if __name__ == "__main__":
     # Test the dataset
     import argparse
 
-    parser = argparse.ArgumentParser(description="Test dataset loading")
+    parser = argparse.ArgumentParser(description="Test CLIP dataset loading")
     parser.add_argument("--data-config", type=str, required=True, help="Path to data config")
-    parser.add_argument("--model-config", type=str, required=True, help="Path to model config")
     args = parser.parse_args()
 
-    with open(args.model_config, 'r') as f:
-        model_config = yaml.safe_load(f)
+    # Configure logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    img_size = model_config["model"]["image-size"]
-
-    dataset = CnnDataset(
+    dataset = ClipDataset(
         data_config_path=args.data_config,
         data_class="train",
-        img_size=img_size,
+        img_size=224,
         printcheck=True
     )
 
@@ -273,3 +210,4 @@ if __name__ == "__main__":
         sample = dataset[0]
         print(f"Sample shape: {sample['input'].shape}")
         print(f"Sample label: {sample['label']}")
+        print(f"Sample path: {sample['file_path']}")

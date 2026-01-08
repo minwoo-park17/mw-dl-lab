@@ -3,11 +3,20 @@ Segmentation Dataset Module
 Real/Fake 폴더 구조 기반으로 마스크를 자동 생성합니다.
 - Real 폴더: 마스크 전체 0
 - Fake 폴더: 마스크 전체 1
+
+지원하는 config 형식:
+  # 단일 경로
+  real_dir: "/path/to/real"
+
+  # 다중 경로 (리스트)
+  real_dir:
+    - "/path1/real"
+    - "/path2/real"
 """
 
 import os
 from pathlib import Path
-from typing import Callable, Optional, Tuple, List
+from typing import Callable, Optional, Tuple, List, Union
 
 from PIL import Image
 import numpy as np
@@ -22,6 +31,60 @@ from .augmentation import (
     get_inference_transform
 )
 from .utils import load_config
+
+
+def _normalize_dirs(dir_config: Union[str, List[str], None]) -> List[str]:
+    """
+    경로 설정을 리스트로 정규화합니다.
+
+    Args:
+        dir_config: 단일 경로 문자열, 경로 리스트, 또는 None
+
+    Returns:
+        경로 리스트 (존재하는 경로만)
+    """
+    if dir_config is None:
+        return []
+
+    if isinstance(dir_config, str):
+        dirs = [dir_config]
+    else:
+        dirs = dir_config
+
+    # 존재하는 경로만 필터링
+    valid_dirs = [d for d in dirs if d and Path(d).exists()]
+    return valid_dirs
+
+
+def _create_datasets_from_dirs(
+    dirs: List[str],
+    label: int,
+    transform: Optional[A.Compose],
+    output_size: int
+) -> List[Dataset]:
+    """
+    여러 디렉토리에서 데이터셋들을 생성합니다.
+
+    Args:
+        dirs: 디렉토리 경로 리스트
+        label: 레이블 값 (0=real, 1=fake)
+        transform: albumentations 변환
+        output_size: 출력 크기
+
+    Returns:
+        데이터셋 리스트
+    """
+    datasets = []
+    for d in dirs:
+        ds = BinarySegmentationDataset(
+            image_dir=d,
+            label=label,
+            transform=transform,
+            output_size=output_size
+        )
+        if len(ds) > 0:
+            datasets.append(ds)
+    return datasets
 
 
 class BinarySegmentationDataset(Dataset):
@@ -121,6 +184,7 @@ def create_dataloaders(
     image_config = data_config['image']
     resize = image_config.get('resize', 1024)
     crop_size = image_config.get('crop_size', 512)
+    min_downscale = image_config.get('min_downscale', 768)
 
     # 로더 설정
     loader_config = data_config.get('loader', {})
@@ -128,28 +192,30 @@ def create_dataloaders(
     num_workers = loader_config.get('num_workers', 4)
     pin_memory = loader_config.get('pin_memory', True)
 
-    # 변환 생성
-    train_transform = get_train_transform(resize=resize, crop_size=crop_size)
+    # 변환 생성 (1024 resize + 512 crop 방식)
+    train_transform = get_train_transform(resize=resize, crop_size=crop_size, min_downscale=min_downscale)
     val_transform = get_val_transform(resize=resize, crop_size=crop_size)
     test_transform = get_test_transform(resize=resize, crop_size=crop_size)
 
     # =========================================================================
-    # 학습 데이터셋
+    # 학습 데이터셋 (다중 경로 지원)
     # =========================================================================
     train_config = data_config['train']
-    train_real = BinarySegmentationDataset(
-        image_dir=train_config['real_dir'],
-        label=0,
-        transform=train_transform,
-        output_size=crop_size
-    )
-    train_fake = BinarySegmentationDataset(
-        image_dir=train_config['fake_dir'],
-        label=1,
-        transform=train_transform,
-        output_size=crop_size
-    )
-    train_dataset = ConcatDataset([train_real, train_fake])
+    train_real_dirs = _normalize_dirs(train_config.get('real_dir'))
+    train_fake_dirs = _normalize_dirs(train_config.get('fake_dir'))
+
+    train_datasets = []
+    train_datasets.extend(_create_datasets_from_dirs(
+        train_real_dirs, label=0, transform=train_transform, output_size=crop_size
+    ))
+    train_datasets.extend(_create_datasets_from_dirs(
+        train_fake_dirs, label=1, transform=train_transform, output_size=crop_size
+    ))
+
+    if not train_datasets:
+        raise ValueError("No training data found! Check your data paths in config.")
+
+    train_dataset = ConcatDataset(train_datasets)
 
     train_loader = DataLoader(
         train_dataset,
@@ -161,22 +227,24 @@ def create_dataloaders(
     )
 
     # =========================================================================
-    # 검증 데이터셋
+    # 검증 데이터셋 (다중 경로 지원)
     # =========================================================================
     val_config = data_config['val']
-    val_real = BinarySegmentationDataset(
-        image_dir=val_config['real_dir'],
-        label=0,
-        transform=val_transform,
-        output_size=resize
-    )
-    val_fake = BinarySegmentationDataset(
-        image_dir=val_config['fake_dir'],
-        label=1,
-        transform=val_transform,
-        output_size=resize
-    )
-    val_dataset = ConcatDataset([val_real, val_fake])
+    val_real_dirs = _normalize_dirs(val_config.get('real_dir'))
+    val_fake_dirs = _normalize_dirs(val_config.get('fake_dir'))
+
+    val_datasets = []
+    val_datasets.extend(_create_datasets_from_dirs(
+        val_real_dirs, label=0, transform=val_transform, output_size=resize
+    ))
+    val_datasets.extend(_create_datasets_from_dirs(
+        val_fake_dirs, label=1, transform=val_transform, output_size=resize
+    ))
+
+    if not val_datasets:
+        raise ValueError("No validation data found! Check your data paths in config.")
+
+    val_dataset = ConcatDataset(val_datasets)
 
     val_loader = DataLoader(
         val_dataset,
@@ -187,47 +255,32 @@ def create_dataloaders(
     )
 
     # =========================================================================
-    # 테스트 데이터셋 (경로가 존재하는 경우만)
+    # 테스트 데이터셋 (다중 경로 지원, 경로가 존재하는 경우만)
     # =========================================================================
     test_loader = None
     test_config = data_config.get('test', {})
 
     if test_config:
-        real_dir = test_config.get('real_dir')
-        fake_dir = test_config.get('fake_dir')
+        test_real_dirs = _normalize_dirs(test_config.get('real_dir'))
+        test_fake_dirs = _normalize_dirs(test_config.get('fake_dir'))
 
-        if real_dir and Path(real_dir).exists() or fake_dir and Path(fake_dir).exists():
-            test_datasets = []
+        test_datasets = []
+        test_datasets.extend(_create_datasets_from_dirs(
+            test_real_dirs, label=0, transform=test_transform, output_size=resize
+        ))
+        test_datasets.extend(_create_datasets_from_dirs(
+            test_fake_dirs, label=1, transform=test_transform, output_size=resize
+        ))
 
-            if real_dir and Path(real_dir).exists():
-                test_real = BinarySegmentationDataset(
-                    image_dir=real_dir,
-                    label=0,
-                    transform=test_transform,
-                    output_size=resize
-                )
-                if len(test_real) > 0:
-                    test_datasets.append(test_real)
-
-            if fake_dir and Path(fake_dir).exists():
-                test_fake = BinarySegmentationDataset(
-                    image_dir=fake_dir,
-                    label=1,
-                    transform=test_transform,
-                    output_size=resize
-                )
-                if len(test_fake) > 0:
-                    test_datasets.append(test_fake)
-
-            if test_datasets:
-                test_dataset = ConcatDataset(test_datasets)
-                test_loader = DataLoader(
-                    test_dataset,
-                    batch_size=batch_size,
-                    shuffle=False,
-                    num_workers=num_workers,
-                    pin_memory=pin_memory
-                )
+        if test_datasets:
+            test_dataset = ConcatDataset(test_datasets)
+            test_loader = DataLoader(
+                test_dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                pin_memory=pin_memory
+            )
 
     print(f"\nDataset Summary:")
     print(f"  Train: {len(train_dataset)} images")

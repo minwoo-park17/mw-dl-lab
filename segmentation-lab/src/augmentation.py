@@ -1,6 +1,6 @@
 """
 Augmentation Module
-데이터 증강 변환 정의 - 필요에 따라 수정하여 사용
+데이터 증강 변환 정의 - 1024 resize + 512 crop 방식
 """
 
 import random
@@ -102,7 +102,7 @@ class RandomDownscaleUpscale(ImageOnlyTransform):
         return ("scale_range",)
 
 
-def get_train_transform(resize: int = 1024, crop_size: int = 512) -> A.Compose:
+def get_train_transform(resize: int = 1024, crop_size: int = 512, min_downscale: int = 768) -> A.Compose:
     """
     학습용 데이터 증강 변환 (정사각형 입력 가정)
     - 다운스케일-업스케일로 품질 저하 시뮬레이션 (70%)
@@ -116,6 +116,7 @@ def get_train_transform(resize: int = 1024, crop_size: int = 512) -> A.Compose:
     Args:
         resize: 리사이즈 크기 (1024)
         crop_size: 학습 시 크롭할 크기 (512)
+        min_downscale: 품질 저하 시뮬레이션 다운스케일 최소값 (768)
 
     Returns:
         albumentations Compose 객체
@@ -123,10 +124,10 @@ def get_train_transform(resize: int = 1024, crop_size: int = 512) -> A.Compose:
     return A.Compose([
         # 1. 다운스케일-업스케일 + 리사이즈 (정사각형 입력 가정)
         #    - 모든 이미지에 70% 확률로 품질 저하 시뮬레이션
-        #    - 다운스케일 범위: 512 ~ 원본크기 (원본 이상으로 업스케일 안함)
+        #    - 다운스케일 범위: min_downscale ~ 원본크기 (원본 이상으로 업스케일 안함)
         DownscaleUpscaleAndResize(
             target_size=resize,
-            min_downscale=crop_size,
+            min_downscale=min_downscale,
             downscale_p=0.7
         ),
 

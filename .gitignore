@@ -111,3 +111,5 @@ outputs/
 results/
 predictions/
 *.log
+*.pt
+nul

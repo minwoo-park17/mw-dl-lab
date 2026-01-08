@@ -213,7 +213,7 @@ class TrainTransformReal:
         self.transform = transforms.Compose([
             RandomDownUp(min_size=250, target_size=img_size, p=0.8),
             JPEGCompression(quality_range=(60, 90), p=0.8),
-            GridShuffle(grid_size=7, shuffle_ratio=0.75, p=0.8),
+            # GridShuffle(grid_size=7, shuffle_ratio=0.75, p=0.8),
             transforms.ToTensor(),
             transforms.Normalize(mean=mean, std=std),
         ])
@@ -228,9 +228,9 @@ class TrainTransformFake:
                  mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
 
         self.transform = transforms.Compose([
-            RandomDownUp(min_size=220, target_size=img_size, p=0.9),
+            RandomDownUp(min_size=250, target_size=img_size, p=0.9),
             JPEGCompression(quality_range=(60, 90), p=0.8),
-            GridShuffle(grid_size=7, shuffle_ratio=0.75, p=0.8),
+            # GridShuffle(grid_size=7, shuffle_ratio=0.75, p=0.8),
             transforms.ToTensor(),
             transforms.Normalize(mean=mean, std=std),
         ])
@@ -265,7 +265,7 @@ class ValTransformFake:
                  mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
 
         self.transform = transforms.Compose([
-            RandomDownUp(min_size=220, target_size=img_size, p=0.7),
+            RandomDownUp(min_size=250, target_size=img_size, p=0.7),
             JPEGCompression(quality_range=(80, 100), p=0.8),
             transforms.ToTensor(),
             transforms.Normalize(mean=mean, std=std),

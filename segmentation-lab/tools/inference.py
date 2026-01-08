@@ -14,8 +14,10 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
 from src.model import create_model
-from src.augmentation import get_inference_transform
 from src.utils import load_config, setup_device
 
 # 얼굴 검출용 (선택적)
@@ -148,16 +150,34 @@ def create_overlay(image: np.ndarray, mask: np.ndarray, alpha: float = 0.5) -> n
     """
     overlay = image.copy()
 
-    # 마스크가 1인 영역에 빨간색 오버레이
-    red_overlay = np.zeros_like(image)
-    red_overlay[:, :, 0] = 255  # Red channel
+    # 마스크가 1인 영역에 파란색 오버레이
+    blue_overlay = np.zeros_like(image)
+    blue_overlay[:, :, 2] = 255  # Blue channel (RGB에서 index 2)
 
     mask_3d = np.stack([mask, mask, mask], axis=-1)
     overlay = np.where(mask_3d > 0,
-                       (1 - alpha) * image + alpha * red_overlay,
+                       (1 - alpha) * image + alpha * blue_overlay,
                        image).astype(np.uint8)
 
     return overlay
+
+
+def pad_to_multiple(image: np.ndarray, multiple: int = 32) -> tuple:
+    """
+    이미지를 multiple의 배수 크기로 패딩합니다.
+
+    Returns:
+        (padded_image, (pad_h, pad_w))
+    """
+    h, w = image.shape[:2]
+    pad_h = (multiple - h % multiple) % multiple
+    pad_w = (multiple - w % multiple) % multiple
+
+    if pad_h == 0 and pad_w == 0:
+        return image, (0, 0)
+
+    padded = np.pad(image, ((0, pad_h), (0, pad_w), (0, 0)), mode='reflect')
+    return padded, (pad_h, pad_w)
 
 
 def run_inference(
@@ -165,20 +185,21 @@ def run_inference(
     image_dir: str,
     output_dir: str,
     device: torch.device,
-    resize: int = 512,
+    resize: int = 1024,  # Validation과 동일 (1024)
     threshold: float = 0.5,
     save_overlay: bool = True,
     face_detector=None
 ):
     """
     디렉토리의 이미지들에 대해 추론을 수행하고 마스크를 저장합니다.
+    (Validation과 동일한 방식: 정사각형 크롭 → resize로 리사이즈 → 추론)
 
     Args:
         model: 추론에 사용할 모델
         image_dir: 입력 이미지 디렉토리
         output_dir: 출력 디렉토리
         device: 디바이스
-        resize: 추론 시 리사이즈 크기
+        resize: 추론 시 리사이즈 크기 (학습 시 validation resize와 동일하게)
         threshold: 이진화 임계값
         save_overlay: 오버레이 이미지 저장 여부
         face_detector: 얼굴 검출기 (None이면 비정사각형 이미지는 센터 크롭)
@@ -191,8 +212,12 @@ def run_inference(
         overlays_dir = output_dir / "overlays"
         overlays_dir.mkdir(parents=True, exist_ok=True)
 
-    # 변환 생성
-    transform = get_inference_transform(max_size=resize)
+    # 변환 생성 (Validation과 동일: Resize → Normalize)
+    transform = A.Compose([
+        A.Resize(height=resize, width=resize),
+        A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ToTensorV2(),
+    ])
 
     # 이미지 목록
     image_paths = get_image_list(image_dir)
@@ -216,9 +241,9 @@ def run_inference(
             # 정사각형이 아니면 얼굴 기반 크롭 (또는 센터 크롭)
             cropped_image = crop_to_square_with_face(original_image, face_detector)
             cropped_np = np.array(cropped_image)
-            cropped_h, cropped_w = cropped_np.shape[:2]
+            cropped_size = cropped_np.shape[0]  # 정사각형이므로 H=W
 
-            # 변환 적용
+            # 변환 적용 (Resize → Normalize)
             transformed = transform(image=cropped_np)
             image_tensor = transformed['image'].unsqueeze(0).to(device)
 
@@ -227,11 +252,11 @@ def run_inference(
             prob = torch.sigmoid(output)
             pred = (prob > threshold).float()
 
-            # 마스크를 크롭된 이미지 크기로 리사이즈
+            # 마스크를 원본 크롭 크기로 리사이즈
             mask_np = pred.squeeze().cpu().numpy()
             mask_resized = np.array(
                 Image.fromarray((mask_np * 255).astype(np.uint8)).resize(
-                    (cropped_w, cropped_h), Image.NEAREST
+                    (cropped_size, cropped_size), Image.NEAREST
                 )
             )
             mask_binary = (mask_resized > 127).astype(np.uint8)
@@ -270,10 +295,10 @@ if __name__ == "__main__":
     OUTPUT_DIR = rf"D:\study\mw-dl-lab\segmentation-lab\results\train_251226181859\test_result_mask"
 
     # 추론 설정
-    RESIZE = 1024           # 추론 시 리사이즈 크기 (학습 시 resize와 동일하게)
-    THRESHOLD = 0.5         # 이진화 임계값
-    SAVE_OVERLAY = True     # 오버레이 이미지 저장 여부
-    USE_FACE_DETECTION = True  # 비정사각형 이미지에 얼굴 기반 크롭 적용
+    RESIZE = 1024               # 추론 시 리사이즈 크기 (학습 시 validation resize와 동일하게)
+    THRESHOLD = 0.5             # 이진화 임계값
+    SAVE_OVERLAY = True         # 오버레이 이미지 저장 여부
+    USE_FACE_DETECTION = True   # 비정사각형 이미지에 얼굴 기반 크롭 적용
 
     # =========================================================================
     # 실행

@@ -1,0 +1,33 @@
+# SeDID (Stepwise Error for Diffusion-generated Image Detection) Configuration
+# Reference: "Exposing the Fake: Effective Diffusion-Generated Images Detection" (ICML Workshop 2023)
+
+model:
+  # Diffusion model settings
+  diffusion_model: "runwayml/stable-diffusion-v1-5"   # Hugging Face model ID
+  timesteps: [250, 500, 750]                          # Timesteps to analyze
+  guidance_scale: 1.0                                  # Classifier-free guidance scale
+
+  # Classifier settings
+  classifier: "resnet18"                               # Backbone for SeDID (lighter than DIRE)
+  image_size: 512                                      # Input image size for diffusion
+  classifier_input_size: 224                           # Input size for classifier
+
+  # Output settings
+  num_classes: 1                                       # Binary classification
+
+training:
+  lr: 0.001                     # Learning rate (higher for ResNet-18)
+  weight_decay: 0.0005          # L2 regularization
+  bs: 8                         # Batch size
+  epochs: 50                    # Maximum epochs
+  early_stop: 15                # Early stopping patience
+
+  # Scheduler settings
+  scheduler:
+    type: "reduce_on_plateau"
+    patience: 5
+    factor: 0.5
+
+  # SeDID computation settings
+  precompute_sedid: true          # Pre-compute SeDID features before training
+  sedid_cache_dir: "./sedid_cache"  # Directory to cache SeDID features

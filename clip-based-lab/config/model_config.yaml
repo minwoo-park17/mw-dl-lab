@@ -1,0 +1,32 @@
+# Model Configuration for CLIP-based Lab (UnivFD)
+# UnivFD: CLIP ViT-L/14 (frozen) + Linear Classifier
+
+model:
+  # CLIP 모델 설정
+  clip_model: "ViT-L/14"        # CLIP 모델 종류 (ViT-B/32, ViT-B/16, ViT-L/14)
+  feature_dim: 768              # CLIP 출력 피처 차원 (ViT-L/14 = 768)
+  freeze_backbone: true         # CLIP 백본 동결 여부
+
+  # 분류기 설정
+  num_classes: 1                # 이진 분류 (BCEWithLogitsLoss 사용)
+
+  # 입력 이미지 설정
+  image_size: 224               # CLIP 표준 입력 크기
+
+training:
+  lr: 0.001                     # 학습률 (Linear만 학습하므로 높게 설정 가능)
+  weight_decay: 0.0001          # L2 정규화
+  bs: 16                        # 배치 크기 (CLIP은 가벼우므로 크게 설정 가능)
+  epochs: 100                    # 최대 에폭
+  early_stop: 20                # Early stopping patience
+
+  # 데이터 샘플링 설정
+  sampling:
+    strategy: "none"            # "weighted" | "balanced" | "none"
+    epoch_mode: "full"          # "minority" | "full"
+
+  # 스케줄러 설정
+  scheduler:
+    type: "reduce_on_plateau"   # ReduceLROnPlateau
+    patience: 3
+    factor: 0.5

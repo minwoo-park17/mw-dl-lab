@@ -1,16 +1,16 @@
 # Data Configuration
 # 학습/검증/테스트 데이터 경로 설정
 
-# 이미지 설정
-# 전처리 순서:
-#   1. 짧은 변 기준으로 resize 크기에 맞게 리사이즈
-#   2. 센터 크롭으로 정사각형(resize x resize) 만들기
-#   3. [학습만] crop_size x crop_size 랜덤 크롭
+# 이미지 설정 (1024 resize + 512 crop 방식)
+# Train: 1024로 리사이즈 → 512 랜덤 크롭
+# Val/Test/Inference: 1024로 리사이즈 (전체 이미지)
 image:
-  # 짧은 변 기준 리사이즈 크기 (픽셀 스케일 기준)
-  resize: 512
-  # 학습 시 랜덤 크롭할 크기
-  crop_size: 256
+  # 리사이즈 크기
+  resize: 1024
+  # 학습 시 크롭 크기
+  crop_size: 512
+  # 품질 저하 시뮬레이션 다운스케일 최소값 (768~원본 범위로 다운스케일)
+  min_downscale: 768
 
 # 데이터 경로 설정
 # 폴더 구조:
